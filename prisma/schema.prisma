@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Định nghĩa các quyền trong hệ thống
+enum UserRole {
+  USER          // Người dùng bình thường
+  TECHNICIAN    // Thợ sửa chữa
+  ADMIN         // Quản trị viên
+}
+
+model User {
+  id              Int           @id @default(autoincrement())
+  
+  // Thông tin đăng nhập chính
+  phoneNumber     String        @unique      // SĐT là bắt buộc và duy nhất
+  password        String                     // Mật khẩu (sẽ băm bằng bcrypt)
+  
+  // Thông tin cá nhân
+  fullName        String?
+  email           String?       @unique
+  avatarUrl       String?                    // Ảnh đại diện
+  address         String?                    // Địa chỉ (VD: Thủ Đức, TP.HCM)
+  
+  // Quản lý trạng thái & Phân quyền
+  role            UserRole      @default(USER)
+  isVerified      Boolean       @default(false) // Đã xác thực OTP chưa?
+  isActive        Boolean       @default(true)  // Có đang bị khóa không?
+  
+  // Lưu vết thời gian
+  lastLogin       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // 2. Mối quan hệ: Một User có nhiều phiên Chat (Lịch sử chẩn đoán)
+  chatSessions    ChatSession[]
+
+  @@map("users") // Đặt tên bảng trong Postgres là 'users' cho chuẩn
+}
+
+// 3. Bảng lưu trữ lịch sử chẩn đoán của AI
+model ChatSession {
+  id              Int      @id @default(autoincrement())
+  deviceType      String?  // Loại máy: Máy giặt, Tủ lạnh...
+  symptom         String?  // Triệu chứng: Không lạnh, kêu to...
+  aiSummary       String?  @db.Text // Tóm tắt chẩn đoán của AI
+  isDangerous     Boolean  @default(false) // Có phải mức Đỏ không?
+  
+  // Khóa ngoại liên kết với User
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("chat_sessions")
+}
