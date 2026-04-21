@@ -37,8 +37,9 @@ model User {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  // 2. Mối quan hệ: Một User có nhiều phiên Chat (Lịch sử chẩn đoán)
+  // 2. Mối quan hệ: Một User có nhiều phiên Chat và Thiết bị
   chatSessions    ChatSession[]
+  devices         Device[]
 
   @@map("users") // Đặt tên bảng trong Postgres là 'users' cho chuẩn
 }
@@ -55,8 +56,35 @@ model ChatSession {
   userId          Int
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  // Khóa ngoại liên kết với Device
+  deviceId        Int?
+  device          Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@map("chat_sessions")
+}
+
+// 4. Bảng quản lý kho thiết bị của User (My Appliances)
+model Device {
+  id                     Int       @id @default(autoincrement())
+  category               String    // Loại: Tủ lạnh, Máy lạnh...
+  brandName              String    // Hãng: Panasonic...
+  modelCode              String?   // Mã máy
+  location               String?   // Vị trí (Phòng khách, Bếp...)
+  purchaseDate           DateTime? // Ngày mua
+  warrantyMonths         Int?      // Số tháng bảo hành
+  maintenanceCycleMonths Int?      // Chu kỳ bảo trì (tháng)
+  nextMaintenanceDate    DateTime? // Ngày bảo trì tiếp theo
+  
+  userId                 Int
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  chatSessions           ChatSession[]
+  
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  
+  @@map("devices")
 }

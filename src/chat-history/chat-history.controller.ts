@@ -11,10 +11,16 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ChatHistoryService } from './chat-history.service';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 // DTO để validate request body
 class SaveHistoryDto {
+  @IsString()
+  @IsNotEmpty()
   title: string;
+
+  @IsString()
+  @IsOptional()
   summary: string;
 }
 

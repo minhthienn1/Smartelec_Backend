@@ -1,0 +1,109 @@
+import { Injectable, NotFoundException, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateDeviceDto } from './dto/create-device.dto';
+
+@Injectable()
+export class DevicesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async createDevice(userId: number, dto: CreateDeviceDto) {
+    try {
+      let nextMaintenanceDate: Date | null = null;
+      const purchaseDate = dto.purchaseDate ? new Date(dto.purchaseDate) : null;
+
+      if (dto.maintenanceCycleMonths) {
+        const baseDate = purchaseDate ? new Date(purchaseDate) : new Date();
+        // Tính toán ngày bảo trì tiếp theo bằng cách thêm số tháng vào baseDate
+        nextMaintenanceDate = new Date(baseDate);
+        nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + dto.maintenanceCycleMonths);
+      }
+
+      const device = await this.prisma.device.create({
+        data: {
+          category: dto.category,
+          brandName: dto.brandName,
+          modelCode: dto.modelCode,
+          location: dto.location,
+          purchaseDate: purchaseDate,
+          warrantyMonths: dto.warrantyMonths,
+          maintenanceCycleMonths: dto.maintenanceCycleMonths,
+          nextMaintenanceDate: nextMaintenanceDate,
+          userId: userId,
+        },
+      });
+
+      return device;
+    } catch (error) {
+      throw new InternalServerErrorException('Không thể thêm thiết bị mới');
+    }
+  }
+
+  async getUserDevices(userId: number) {
+    return this.prisma.device.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getDeviceById(id: number, userId: number) {
+    const device = await this.prisma.device.findUnique({
+      where: { id },
+      include: {
+        chatSessions: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!device) {
+      throw new NotFoundException('Thiết bị không tồn tại');
+    }
+
+    if (device.userId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền xem thiết bị này');
+    }
+
+    return device;
+  }
+
+  async deleteDevice(id: number, userId: number) {
+    const device = await this.getDeviceById(id, userId); // Kiểm tra tồn tại và quyền sở hữu
+    
+    await this.prisma.device.delete({
+      where: { id: device.id },
+    });
+
+    return { message: 'Đã xóa thiết bị thành công' };
+  }
+
+  async updateDevice(id: number, userId: number, dto: any) {
+    const device = await this.getDeviceById(id, userId);
+
+    let nextMaintenanceDate: Date | null = device.nextMaintenanceDate;
+    
+    const purchaseDate = dto.purchaseDate !== undefined ? (dto.purchaseDate ? new Date(dto.purchaseDate) : null) : device.purchaseDate;
+    const maintenanceCycle = dto.maintenanceCycleMonths !== undefined ? dto.maintenanceCycleMonths : device.maintenanceCycleMonths;
+
+    if (maintenanceCycle) {
+      const baseDate = purchaseDate ? new Date(purchaseDate) : new Date();
+      nextMaintenanceDate = new Date(baseDate);
+      nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + maintenanceCycle);
+    }
+
+    const updated = await this.prisma.device.update({
+      where: { id: device.id },
+      data: {
+        category: dto.category,
+        brandName: dto.brandName,
+        modelCode: dto.modelCode,
+        location: dto.location,
+        purchaseDate: purchaseDate,
+        warrantyMonths: dto.warrantyMonths,
+        maintenanceCycleMonths: dto.maintenanceCycleMonths,
+        nextMaintenanceDate: nextMaintenanceDate,
+      },
+    });
+
+    return updated;
+  }
+}
