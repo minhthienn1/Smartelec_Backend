@@ -14,6 +14,12 @@ enum UserRole {
   ADMIN         // Quản trị viên
 }
 
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
 model User {
   id              Int           @id @default(autoincrement())
   
@@ -23,6 +29,7 @@ model User {
   
   // Thông tin cá nhân
   fullName        String?
+  gender          Gender
   email           String?       @unique
   avatarUrl       String?                    // Ảnh đại diện
   address         String?                    // Địa chỉ (VD: Thủ Đức, TP.HCM)

@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
+import { RegisterDto } from './dto/register.dto'; // Import DTO vào đây
 
 @Injectable()
 export class AuthService {
@@ -14,55 +15,69 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  // 1. Chức năng Đăng ký
-  async register(phoneNumber: string, pass: string) {
-    // Kiểm tra SĐT đã tồn tại chưa
-    const userExists = await this.prisma.user.findUnique({
-      where: { phoneNumber },
+  // 1. Chức năng Đăng ký (Cập nhật để nhận RegisterDto)
+  async register(dto: RegisterDto) {
+    const { email, phoneNumber, password, fullName, gender, address, avatarUrl } = dto;
+
+    // Kiểm tra xem Email HOẶC Số điện thoại đã tồn tại chưa
+    const userExists = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { phoneNumber: phoneNumber },
+          { email: email },
+        ],
+      },
     });
 
     if (userExists) {
-      throw new ConflictException('Số điện thoại này đã được đăng ký!');
+      if (userExists.phoneNumber === phoneNumber) {
+        throw new ConflictException('Số điện thoại này đã được đăng ký!');
+      }
+      if (userExists.email === email) {
+        throw new ConflictException('Email này đã được sử dụng!');
+      }
     }
 
-    // Băm mật khẩu (Mã hóa 1 chiều)
+    // Băm mật khẩu
     const salt = await bcrypt.genSalt();
-    const hashedPassword = await bcrypt.hash(pass, salt);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Lưu User mới vào Database Neon
+    // Lưu User mới với đầy đủ thông tin
     const newUser = await this.prisma.user.create({
       data: {
+        fullName,
+        email,
         phoneNumber,
         password: hashedPassword,
+        gender,
+        address,
+        avatarUrl,
+        // role: 'USER', // Nếu bạn có phân quyền, mặc định là USER
       },
     });
 
     return {
-      message: 'Đăng ký thành công!',
+      message: 'Đăng ký tài khoản SmartElec thành công!',
       userId: newUser.id,
     };
   }
 
-  // 2. Chức năng Đăng nhập
+  // 2. Chức năng Đăng nhập (Giữ nguyên hoặc cập nhật nhẹ)
   async login(phoneNumber: string, pass: string) {
-    // Tìm user theo số điện thoại
     const user = await this.prisma.user.findUnique({
       where: { phoneNumber },
     });
 
-    // Nếu không tìm thấy user
     if (!user) {
-      throw new UnauthorizedException('Số điện thoại hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Thông tin đăng nhập không chính xác');
     }
 
-    // So sánh mật khẩu người dùng nhập với mật khẩu đã băm trong DB
     const isMatch = await bcrypt.compare(pass, user.password);
 
     if (!isMatch) {
-      throw new UnauthorizedException('Số điện thoại hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Thông tin đăng nhập không chính xác');
     }
 
-    // Tạo mã Token (Payload chứa các thông tin không nhạy cảm)
     const payload = {
       sub: user.id,
       phone: user.phoneNumber,
@@ -76,7 +91,9 @@ export class AuthService {
         id: user.id,
         phoneNumber: user.phoneNumber,
         fullName: user.fullName,
+        email: user.email, // Trả thêm email về cho app dùng
         role: user.role,
+        avatarUrl: user.avatarUrl,
       },
     };
   }
