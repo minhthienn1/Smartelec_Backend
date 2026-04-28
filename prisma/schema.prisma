@@ -7,11 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 1. Định nghĩa các quyền trong hệ thống
+// ======================================================================
+// 1. ENUMS (DANH MỤC TRẠNG THÁI)
+// ======================================================================
 enum UserRole {
-  USER          // Người dùng bình thường
-  TECHNICIAN    // Thợ sửa chữa
-  ADMIN         // Quản trị viên
+  USER // Khách hàng
+  TECHNICIAN // Thợ sửa chữa
+  ADMIN // Quản trị viên
 }
 
 enum Gender {
@@ -20,78 +22,187 @@ enum Gender {
   OTHER
 }
 
-model User {
-  id              Int           @id @default(autoincrement())
-  
-  // Thông tin đăng nhập chính
-  phoneNumber     String        @unique      // SĐT là bắt buộc và duy nhất
-  password        String                     // Mật khẩu (sẽ băm bằng bcrypt)
-  
-  // Thông tin cá nhân
-  fullName        String?
-  gender          Gender
-  email           String?       @unique
-  avatarUrl       String?                    // Ảnh đại diện
-  address         String?                    // Địa chỉ (VD: Thủ Đức, TP.HCM)
-  
-  // Quản lý trạng thái & Phân quyền
-  role            UserRole      @default(USER)
-  isVerified      Boolean       @default(false) // Đã xác thực OTP chưa?
-  isActive        Boolean       @default(true)  // Có đang bị khóa không?
-  
-  // Lưu vết thời gian
-  lastLogin       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  // 2. Mối quan hệ: Một User có nhiều phiên Chat và Thiết bị
-  chatSessions    ChatSession[]
-  devices         Device[]
-
-  @@map("users") // Đặt tên bảng trong Postgres là 'users' cho chuẩn
+enum JobStatus {
+  AI_CONSULTING // Đang chat với AI
+  BROADCASTING // Đang phát sóng tìm thợ
+  MATCHED // Thợ đã nhận ca, phòng chat mở
+  IN_PROGRESS // Đã chốt báo giá, đang tiến hành sửa
+  DONE // Sửa xong, hoàn thành
+  CANCELLED // Bị hủy
 }
 
-// 3. Bảng lưu trữ lịch sử chẩn đoán của AI
+enum MessageType {
+  TEXT
+  IMAGE
+  QUOTE_CARD // Thẻ báo giá
+  SYSTEM_LOG // Tin nhắn hệ thống
+}
+
+enum QuoteStatus {
+  PENDING // Chờ khách duyệt
+  ACCEPTED // Khách đồng ý
+  REJECTED // Khách từ chối
+  SUPERSEDED // Bị thay thế bởi báo giá mới
+  CANCELLED // Thợ tự hủy
+}
+
+enum AssignmentAction {
+  ASSIGNED // Thợ nhận đơn
+  UNASSIGNED // Thợ hủy đơn
+  REJECTED // Khách từ chối thợ (nếu có tính năng này sau này)
+}
+
+// ======================================================================
+// 2. BẢNG NGƯỜI DÙNG & THIẾT BỊ
+// ======================================================================
+model User {
+  id          Int     @id @default(autoincrement())
+  phoneNumber String  @unique
+  password    String
+  fullName    String?
+  gender      Gender
+  email       String? @unique
+  avatarUrl   String?
+  address     String?
+
+  role       UserRole @default(USER)
+  isVerified Boolean  @default(false)
+  isActive   Boolean  @default(true)
+
+  lastLogin DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // CÁC MỐI QUAN HỆ (RELATIONS)
+  devices             Device[]
+  chatSessions        ChatSession[]              @relation("CustomerSessions")
+  technicianSessions  ChatSession[]              @relation("TechnicianSessions")
+  sentMessages        Message[]                  @relation("SentMessages")
+  quotesCreated       Quote[]
+  assignmentHistories SessionAssignmentHistory[] // Lịch sử nhận/hủy đơn
+
+  @@map("users")
+}
+
+model Device {
+  id                     Int       @id @default(autoincrement())
+  category               String
+  brandName              String
+  modelCode              String?
+  location               String?
+  purchaseDate           DateTime?
+  warrantyMonths         Int?
+  maintenanceCycleMonths Int?
+  nextMaintenanceDate    DateTime?
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chatSessions ChatSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("devices")
+}
+
+// ======================================================================
+// 3. BẢNG QUẢN LÝ PHIÊN CHAT & SỬA CHỮA (TICKET/JOB)
+// ======================================================================
 model ChatSession {
-  id              Int      @id @default(autoincrement())
-  deviceType      String?  // Loại máy: Máy giặt, Tủ lạnh...
-  symptom         String?  // Triệu chứng: Không lạnh, kêu to...
-  aiSummary       String?  @db.Text // Tóm tắt chẩn đoán của AI
-  isDangerous     Boolean  @default(false) // Có phải mức Đỏ không?
-  
-  // Khóa ngoại liên kết với User
-  userId          Int
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Khóa ngoại liên kết với Device
-  deviceId        Int?
-  device          Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          Int     @id @default(autoincrement())
+  deviceType  String?
+  symptom     String?
+  aiSummary   String? @db.Text
+  isDangerous Boolean @default(false)
+
+  status  JobStatus @default(AI_CONSULTING)
+  version Int       @default(1) // Khóa lạc quan (Optimistic Locking)
+
+  // Khách hàng tạo ca
+  userId Int
+  user   User @relation("CustomerSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Thiết bị liên quan
+  deviceId Int?
+  device   Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  // Thợ được gán
+  technicianId Int?
+  technician   User? @relation("TechnicianSessions", fields: [technicianId], references: [id])
+
+  // Lịch sử, Tin nhắn, Báo giá
+  messages            Message[]
+  quotes              Quote[]
+  assignmentHistories SessionAssignmentHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("chat_sessions")
 }
 
-// 4. Bảng quản lý kho thiết bị của User (My Appliances)
-model Device {
-  id                     Int       @id @default(autoincrement())
-  category               String    // Loại: Tủ lạnh, Máy lạnh...
-  brandName              String    // Hãng: Panasonic...
-  modelCode              String?   // Mã máy
-  location               String?   // Vị trí (Phòng khách, Bếp...)
-  purchaseDate           DateTime? // Ngày mua
-  warrantyMonths         Int?      // Số tháng bảo hành
-  maintenanceCycleMonths Int?      // Chu kỳ bảo trì (tháng)
-  nextMaintenanceDate    DateTime? // Ngày bảo trì tiếp theo
-  
-  userId                 Int
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  chatSessions           ChatSession[]
-  
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-  
-  @@map("devices")
+// ======================================================================
+// 4. CÁC BẢNG HỖ TRỢ (TIN NHẮN, BÁO GIÁ, LỊCH SỬ GÁN ĐƠN)
+// ======================================================================
+model Message {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  senderId Int?
+  sender   User? @relation("SentMessages", fields: [senderId], references: [id], onDelete: SetNull)
+
+  type     MessageType @default(TEXT)
+  content  String      @db.Text
+  metadata Json?
+
+  isRead    Boolean   @default(false)
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@map("messages")
+}
+
+model Quote {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  technicianId Int
+  technician   User @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+
+  title   String
+  amount  Float
+  status  QuoteStatus @default(PENDING)
+  version Int         @default(1)
+
+  parentQuoteId Int?
+
+  acceptedAt  DateTime?
+  rejectedAt  DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quotes")
+}
+
+model SessionAssignmentHistory {
+  id Int @id @default(autoincrement())
+
+  chatSessionId Int
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  technicianId Int
+  technician   User @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+
+  action AssignmentAction // ASSIGNED, UNASSIGNED, REJECTED
+
+  createdAt DateTime @default(now())
+
+  @@map("session_assignment_history")
 }
