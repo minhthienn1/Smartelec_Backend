@@ -11,6 +11,7 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  Patch,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatsService } from './chats.service';
@@ -18,12 +19,14 @@ import { UploadService } from '../upload/upload.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { CreateQuoteDto } from './dto/create-quote.dto';
 import { MessageType } from '@prisma/client';
+import { ChatsGateway } from './chats.gateway';
 
 @Controller('chats')
 export class ChatsController {
   constructor(
     private readonly chatsService: ChatsService,
     private readonly uploadService: UploadService,
+    private readonly chatsGateway: ChatsGateway,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────
@@ -76,47 +79,48 @@ export class ChatsController {
 
   // ─────────────────────────────────────────────────────────────────
   // POST /chats/:id/image
-  // Upload ảnh vào phiên chat → Lưu lên R2 → Tạo tin nhắn IMAGE
-  // Client gửi: multipart/form-data, field name = 'file'
-  // Tạm hardcode senderId = 3 (Khách hàng) để test
+  // Upload ảnh/video vào phiên chat → Lưu lên R2 → Tạo tin nhắn
   // ─────────────────────────────────────────────────────────────────
   @Post(':id/image')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
-  async uploadImageMessage(
+  async uploadMediaMessage(
     @Param('id', ParseIntPipe) sessionId: number,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    // Validate file
     if (!file) {
-      throw new BadRequestException(
-        'Không tìm thấy file. Vui lòng chọn ảnh để gửi.',
-      );
+      throw new BadRequestException('Không tìm thấy file. Vui lòng chọn file để gửi.');
     }
 
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const allowedMimeTypes = [
+      'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic',
+      'video/mp4', 'video/quicktime', 'video/x-matroska'
+    ];
+    
     if (!allowedMimeTypes.includes(file.mimetype)) {
       throw new BadRequestException(
-        `Loại file không hỗ trợ (${file.mimetype}). Chỉ chấp nhận: JPEG, PNG, WebP, GIF.`,
+        `Loại file không hỗ trợ (${file.mimetype}). Chỉ chấp nhận: Ảnh (JPEG, PNG, WebP, HEIC) và Video (MP4, MOV, MKV).`,
       );
     }
 
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxSize = 50 * 1024 * 1024; // 50MB
     if (file.size > maxSize) {
       throw new BadRequestException(
-        `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa: 5MB.`,
+        `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa: 50MB.`,
       );
     }
 
-    // Bước 1: Upload ảnh lên Cloudflare R2
-    const imageUrl = await this.uploadService.uploadFile(file, 'chat-images');
+    // Upload lên R2
+    const fileUrl = await this.uploadService.uploadFile(file, 'chat-media');
 
-    // Bước 2: Tạo tin nhắn IMAGE với content = URL ảnh
+    // Xác định MessageType dựa vào mimetype
+    const type = file.mimetype.startsWith('video/') ? MessageType.VIDEO : MessageType.IMAGE;
+
     // TODO: Sau này lấy senderId từ JWT token (@Req() req → req.user.id)
     const senderId = 3; // Hardcode Khách hàng để test
     const message = await this.chatsService.sendMessage(sessionId, senderId, {
-      type: MessageType.IMAGE,
-      content: imageUrl,
+      type: type,
+      content: fileUrl,
       metadata: {
         fileName: file.originalname,
         fileSize: file.size,
@@ -125,8 +129,37 @@ export class ChatsController {
     });
 
     return {
-      message: 'Gửi ảnh thành công!',
-      imageUrl,
+      message: 'Gửi file thành công!',
+      fileUrl,
+      data: message,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // PATCH /chats/messages/:messageId/quote
+  // Cập nhật trạng thái báo giá và emit qua socket
+  // ─────────────────────────────────────────────────────────────────
+  @Patch('messages/:messageId/quote')
+  async updateQuoteStatus(
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Body('status') status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    if (!['ACCEPTED', 'REJECTED'].includes(status)) {
+      throw new BadRequestException('Trạng thái không hợp lệ.');
+    }
+
+    const { message } = await this.chatsService.updateQuoteStatus(messageId, status);
+
+    // Emit event socket tới phòng chat
+    const roomName = `room_${message.sessionId}`;
+    this.chatsGateway.server.to(roomName).emit('quote_updated', {
+      messageId: message.id,
+      status: status,
+      message: message, // Gửi luôn message mới nhất để frontend cập nhật
+    });
+
+    return {
+      message: 'Đã cập nhật trạng thái báo giá thành công.',
       data: message,
     };
   }

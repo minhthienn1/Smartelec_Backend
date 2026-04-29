@@ -11,11 +11,36 @@ export class DevicesService {
       let nextMaintenanceDate: Date | null = null;
       const purchaseDate = dto.purchaseDate ? new Date(dto.purchaseDate) : null;
 
-      if (dto.maintenanceCycleMonths) {
+      let maintenanceCycle = dto.maintenanceCycleMonths;
+
+      // Áp dụng quy tắc tĩnh nếu không truyền vào
+      if (!maintenanceCycle) {
+        switch (dto.category) {
+          case 'Máy lạnh':
+          case 'Điều hòa':
+            maintenanceCycle = 6;
+            break;
+          case 'Máy giặt':
+            maintenanceCycle = 12;
+            break;
+          case 'Lọc nước':
+          case 'Máy lọc nước':
+            maintenanceCycle = 3;
+            break;
+          case 'Tủ lạnh':
+          case 'Tivi':
+            maintenanceCycle = 12;
+            break;
+          default:
+            maintenanceCycle = 6; // Mặc định 6 tháng
+        }
+      }
+
+      if (maintenanceCycle) {
         const baseDate = purchaseDate ? new Date(purchaseDate) : new Date();
         // Tính toán ngày bảo trì tiếp theo bằng cách thêm số tháng vào baseDate
         nextMaintenanceDate = new Date(baseDate);
-        nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + dto.maintenanceCycleMonths);
+        nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + maintenanceCycle);
       }
 
       const device = await this.prisma.device.create({
@@ -26,7 +51,7 @@ export class DevicesService {
           location: dto.location,
           purchaseDate: purchaseDate,
           warrantyMonths: dto.warrantyMonths,
-          maintenanceCycleMonths: dto.maintenanceCycleMonths,
+          maintenanceCycleMonths: maintenanceCycle,
           nextMaintenanceDate: nextMaintenanceDate,
           userId: userId,
         },
