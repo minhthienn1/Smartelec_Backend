@@ -24,23 +24,25 @@ export class UploadController {
       throw new BadRequestException('Không tìm thấy file. Vui lòng chọn ảnh để upload.');
     }
 
-    // Kiểm tra loại file (chỉ cho phép ảnh)
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const allowedMimeTypes = [
+      'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic',
+      'video/mp4', 'video/quicktime', 'video/x-matroska'
+    ];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       throw new BadRequestException(
-        `Loại file không hỗ trợ (${file.mimetype}). Chỉ chấp nhận: JPEG, PNG, WebP, GIF.`,
+        `Loại file không hỗ trợ (${file.mimetype}). Chỉ chấp nhận: Ảnh (JPEG, PNG, WebP, HEIC) và Video (MP4, MOV, MKV).`,
       );
     }
 
-    // Giới hạn dung lượng: 5MB
-    const maxSize = 5 * 1024 * 1024;
+    // Giới hạn dung lượng: 50MB
+    const maxSize = 50 * 1024 * 1024;
     if (file.size > maxSize) {
       throw new BadRequestException(
-        `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa cho phép: 5MB.`,
+        `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa cho phép: 50MB.`,
       );
     }
 
-    const url = await this.uploadService.uploadFile(file, 'chat-images');
+    const url = await this.uploadService.uploadFile(file, 'media');
 
     return {
       message: 'Upload ảnh thành công!',

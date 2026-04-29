@@ -82,6 +82,8 @@ export class AuthService {
       sub: user.id,
       phone: user.phoneNumber,
       role: user.role,
+      fullName: user.fullName,
+      avatarUrl: user.avatarUrl,
     };
 
     return {

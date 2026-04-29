@@ -205,4 +205,62 @@ export class ChatsService {
       );
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 5. CẬP NHẬT TRẠNG THÁI BÁO GIÁ
+  // ─────────────────────────────────────────────────────────────────
+  async updateQuoteStatus(
+    messageId: number,
+    status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    try {
+      // Tìm tin nhắn chứa báo giá
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+      });
+
+      if (!message || message.type !== MessageType.QUOTE_CARD) {
+        throw new NotFoundException('Không tìm thấy thẻ báo giá này.');
+      }
+
+      const metadata = message.metadata as Record<string, any>;
+      const quoteId = metadata?.quoteId;
+
+      if (!quoteId) {
+        throw new BadRequestException('Tin nhắn này không chứa mã báo giá hợp lệ.');
+      }
+
+      // Cập nhật trạng thái của Quote trong bảng quotes
+      const quote = await this.prisma.quote.update({
+        where: { id: quoteId },
+        data: {
+          status: status,
+          ...(status === 'ACCEPTED' ? { acceptedAt: new Date() } : { rejectedAt: new Date() }),
+        },
+      });
+
+      // Cập nhật metadata của Message để frontend dễ hiển thị
+      const updatedMetadata = {
+        ...metadata,
+        quoteStatus: status,
+      };
+
+      const updatedMessage = await this.prisma.message.update({
+        where: { id: messageId },
+        data: { metadata: updatedMetadata },
+        include: {
+          sender: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
+        },
+      });
+
+      return { quote, message: updatedMessage };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Lỗi khi cập nhật báo giá: ' + error.message);
+    }
+  }
 }
