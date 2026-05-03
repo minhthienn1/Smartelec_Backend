@@ -56,3 +56,21 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Firebase Service Account Key 
+serviceAccountKey.json
+service-account.json
+
+# Database
+*.db
+*.sqlite
+
+# OS - Windows & Mac
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# npm
+.npm
+node_modules/

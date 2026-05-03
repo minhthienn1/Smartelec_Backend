@@ -9,6 +9,7 @@ import { ChatHistoryModule } from './chat-history/chat-history.module';
 import { DevicesModule } from './devices/devices.module';
 import { ChatsModule } from './chats/chats.module';
 import { UploadModule } from './upload/upload.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { UploadModule } from './upload/upload.module';
     DevicesModule,
     ChatsModule,
     UploadModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -61,8 +61,12 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Bước 3: Lưu userId đã xác thực vào client.data
       client.data.userId = payload.sub; // sub = userId (theo chuẩn JWT)
 
+      // Bước 4: Tự động tham gia phòng cá nhân (để nhận thông báo inbox real-time)
+      const userRoom = `user_${payload.sub}`;
+      client.join(userRoom);
+
       console.log(
-        `⚡ [WS] User ${payload.sub} authenticated & connected (socket: ${client.id})`,
+        `⚡ [WS] User ${payload.sub} authenticated & joined ${userRoom} (socket: ${client.id})`,
       );
     } catch (error) {
       // Token hết hạn, bị sửa đổi, hoặc không hợp lệ
@@ -151,6 +155,20 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Bước 2: Phát tin nhắn tới TẤT CẢ mọi người trong phòng (bao gồm cả người gửi)
       this.server.to(roomName).emit('new_message', savedMessage);
+
+      // Bước 3: Phát tín hiệu cập nhật hộp thư (inbox) cho người nhận
+      // Tìm session để biết ai là người nhận
+      const session = await this.chatsService.getSessionById(data.sessionId);
+      if (session) {
+        const recipientId = userId === session.userId ? session.technicianId : session.userId;
+        if (recipientId) {
+          const recipientRoom = `user_${recipientId}`;
+          this.server.to(recipientRoom).emit('inbox_update', {
+            sessionId: data.sessionId,
+            lastMessage: savedMessage,
+          });
+        }
+      }
 
       console.log(
         `💬 [WS] User ${userId} sent message in ${roomName}: "${data.content.substring(0, 30)}..."`,

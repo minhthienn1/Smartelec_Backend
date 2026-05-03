@@ -89,14 +89,29 @@ export class AuthService {
     return {
       message: 'Đăng nhập thành công!',
       access_token: await this.jwtService.signAsync(payload),
-      user: {
-        id: user.id,
-        phoneNumber: user.phoneNumber,
-        fullName: user.fullName,
-        email: user.email, // Trả thêm email về cho app dùng
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-      },
     };
+  }
+
+  // 3. Lấy thông tin cá nhân
+  async getProfile(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        phoneNumber: true,
+        fullName: true,
+        email: true,
+        role: true,
+        avatarUrl: true,
+        address: true,
+        gender: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Người dùng không tồn tại');
+    }
+
+    return user;
   }
 }

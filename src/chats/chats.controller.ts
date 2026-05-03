@@ -12,8 +12,11 @@ import {
   UseInterceptors,
   BadRequestException,
   Patch,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChatsService } from './chats.service';
 import { UploadService } from '../upload/upload.service';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -28,6 +31,17 @@ export class ChatsController {
     private readonly uploadService: UploadService,
     private readonly chatsGateway: ChatsGateway,
   ) {}
+
+  // ─────────────────────────────────────────────────────────────────
+  // GET /chats
+  // Lấy danh sách các phiên chat của user đang đăng nhập (Hộp thư)
+  // ─────────────────────────────────────────────────────────────────
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  async getUserSessions(@Req() req) {
+    const userId = req.user.userId;
+    return this.chatsService.getUserSessions(userId);
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // GET /chats/:id/messages?cursor=10&limit=20
