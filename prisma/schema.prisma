@@ -65,6 +65,7 @@ model User {
   email       String? @unique
   avatarUrl   String?
   address     String?
+  fcmToken    String?
 
   role       UserRole @default(USER)
   isVerified Boolean  @default(false)

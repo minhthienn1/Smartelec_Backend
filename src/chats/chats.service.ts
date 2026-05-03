@@ -8,10 +8,58 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { CreateQuoteDto } from './dto/create-quote.dto';
 import { MessageType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ChatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  // ─────────────────────────────────────────────────────────────────
+  // 0. LẤY DANH SÁCH PHIÊN CHAT CỦA USER (Hộp thư)
+  // ─────────────────────────────────────────────────────────────────
+  async getUserSessions(userId: number) {
+    try {
+      return await this.prisma.chatSession.findMany({
+        where: {
+          OR: [
+            { userId: userId },
+            { technicianId: userId },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          user: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
+          technician: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              sender: {
+                select: { id: true, fullName: true },
+              },
+            },
+          },
+        },
+      });
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Lỗi khi tải danh sách phiên chat: ' + error.message,
+      );
+    }
+  }
+
+  async getSessionById(sessionId: number) {
+    return this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // 1. LẤY DANH SÁCH TIN NHẮN (Cursor-based Pagination)
@@ -80,6 +128,11 @@ export class ChatsService {
           },
         },
       });
+
+      // Gửi Push Notification cho người nhận
+      this.triggerFCMNotification(sessionId, senderId, message).catch(err => 
+        console.error('Lỗi gửi FCM âm thầm:', err.message)
+      );
 
       return message;
     } catch (error) {
@@ -261,6 +314,61 @@ export class ChatsService {
         throw error;
       }
       throw new InternalServerErrorException('Lỗi khi cập nhật báo giá: ' + error.message);
+    }
+  }
+
+  // Helper gửi FCM cho đối phương trong session
+  private async triggerFCMNotification(sessionId: number, senderId: number, message: any) {
+    console.log(`🔍 Đang chuẩn bị gửi FCM cho Session: ${sessionId}, Người gửi: ${senderId}`);
+    
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { userId: true, technicianId: true },
+    });
+
+    if (!session) {
+      console.log('⚠️ Không tìm thấy Session để gửi FCM');
+      return;
+    }
+
+    // Xác định người nhận (Recipient)
+    const recipientId = senderId === session.userId ? session.technicianId : session.userId;
+    if (!recipientId) {
+      console.log('⚠️ Không tìm thấy Người nhận (Recipient ID null)');
+      return;
+    }
+
+    const recipient = await this.prisma.user.findUnique({
+      where: { id: recipientId },
+      select: { fcmToken: true, fullName: true },
+    });
+
+    if (!recipient) {
+      console.log(`⚠️ Không tìm thấy User người nhận với ID: ${recipientId}`);
+      return;
+    }
+
+    if (!recipient.fcmToken) {
+      console.log(`❌ User ${recipient.fullName} (ID: ${recipientId}) chưa có FCM Token trong DB!`);
+      return;
+    }
+
+    console.log(`🚀 Đang gửi FCM tới ${recipient.fullName} (Token: ${recipient.fcmToken.substring(0, 10)}...)`);
+
+    const title = message.sender?.fullName || 'Tin nhắn mới';
+    let body = message.content;
+    if (message.type === MessageType.IMAGE) body = '📷 Đã gửi một ảnh';
+    if (message.type === MessageType.QUOTE_CARD) body = '📄 Đã gửi báo giá mới';
+
+    try {
+      const response = await this.notificationsService.sendTestNotification(
+        recipient.fcmToken,
+        title,
+        body,
+      );
+      console.log('✅ Gửi FCM thành công:', response);
+    } catch (err) {
+      console.error('❌ Lỗi gửi FCM thực tế:', err.message);
     }
   }
 }
