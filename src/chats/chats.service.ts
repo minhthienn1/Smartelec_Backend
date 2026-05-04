@@ -317,6 +317,39 @@ export class ChatsService {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // 6. CHỐT ĐƠN ĐẶT THỢ (Transition to BROADCASTING)
+  // ─────────────────────────────────────────────────────────────────
+  async bookTechnician(sessionId: number, userId: number) {
+    // 1. Tìm phiên chat
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new NotFoundException(`Không tìm thấy phiên chat với ID = ${sessionId}`);
+    }
+
+    // 2. Kiểm tra quyền sở hữu
+    if (session.userId !== userId) {
+      throw new BadRequestException('Bạn không có quyền chốt đơn cho phiên chat này.');
+    }
+
+    // 3. Kiểm tra trạng thái hiện tại (Chỉ cho phép khi đang ở bước AI tư vấn)
+    if (session.status !== 'AI_CONSULTING') {
+      throw new BadRequestException(`Phiên chat này đang ở trạng thái ${session.status}, không thể chốt đơn.`);
+    }
+
+    // 4. Cập nhật trạng thái sang BROADCASTING (Đang phát sóng tìm thợ)
+    return await this.prisma.chatSession.update({
+      where: { id: sessionId },
+      data: {
+        status: 'BROADCASTING',
+        updatedAt: new Date(),
+      },
+    });
+  }
+
   // Helper gửi FCM cho đối phương trong session
   private async triggerFCMNotification(sessionId: number, senderId: number, message: any) {
     console.log(`🔍 Đang chuẩn bị gửi FCM cho Session: ${sessionId}, Người gửi: ${senderId}`);

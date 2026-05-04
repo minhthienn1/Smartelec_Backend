@@ -177,4 +177,24 @@ export class ChatsController {
       data: message,
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/:id/book
+  // Khách hàng chốt đơn đặt thợ → Chuyển sang BROADCASTING
+  // ─────────────────────────────────────────────────────────────────
+  @Post(':id/book')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async bookTechnician(
+    @Param('id', ParseIntPipe) sessionId: number,
+    @Req() req,
+  ) {
+    const userId = Number(req.user?.id || req.user?.userId || req.user?.sub);
+    const session = await this.chatsService.bookTechnician(sessionId, userId);
+    
+    return {
+      message: 'Đã chốt đơn thành công! Hệ thống đang phát sóng tìm thợ quanh khu vực của bạn.',
+      data: session,
+    };
+  }
 }
