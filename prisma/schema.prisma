@@ -208,3 +208,17 @@ model SessionAssignmentHistory {
 
   @@map("session_assignment_history")
 }
+
+model AiReasoningLog {
+  id        Int      @id @default(autoincrement())
+  sessionId Int?
+  userId    Int
+  userMsg   String   @db.Text
+  prevState Json?
+  nextState Json?
+  riskLevel String?
+  aiResponse String? @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("ai_reasoning_logs")
+}
