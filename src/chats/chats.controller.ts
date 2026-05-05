@@ -43,6 +43,55 @@ export class ChatsController {
     return this.chatsService.getUserSessions(userId);
   }
 
+  // --- API DÀNH CHO THỢ (TECHNICIAN ROLE) ---
+
+  @UseGuards(JwtAuthGuard)
+  @Get('technician/jobs/broadcast')
+  async getBroadcastJobs() {
+    return this.chatsService.getBroadcastJobs();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('technician/jobs/:id/accept')
+  async acceptJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+    @Body() body: { currentVersion: number },
+  ) {
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.acceptJob(id, technicianId, body.currentVersion);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/technician/jobs/:id/cancel
+  // Thợ chủ động từ bỏ đơn hàng → Trả về BROADCASTING
+  // ─────────────────────────────────────────────────────────────────
+  @UseGuards(JwtAuthGuard)
+  @Post('technician/jobs/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.cancelJob(id, technicianId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/technician/jobs/:id/complete
+  // Thợ xác nhận hoàn thành đơn → Chuyển sang COMPLETED
+  // ─────────────────────────────────────────────────────────────────
+  @UseGuards(JwtAuthGuard)
+  @Post('technician/jobs/:id/complete')
+  @HttpCode(HttpStatus.OK)
+  async completeJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.completeJob(id, technicianId);
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // GET /chats/:id/messages?cursor=10&limit=20
   // Lấy danh sách tin nhắn của phiên chat (Cursor-based Pagination)
@@ -65,29 +114,30 @@ export class ChatsController {
   // Tạm hardcode senderId = 3 (Khách hàng) để test
   // ─────────────────────────────────────────────────────────────────
   @Post(':id/messages')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   async sendMessage(
     @Param('id', ParseIntPipe) sessionId: number,
+    @Req() req,
     @Body() dto: SendMessageDto,
   ) {
-    // TODO: Sau này lấy senderId từ JWT token (@Req() req → req.user.id)
-    const senderId = 3; // Hardcode Khách hàng để test
+    const senderId = Number(req.user.id || req.user.userId || req.user.sub);
     return this.chatsService.sendMessage(sessionId, senderId, dto);
   }
 
   // ─────────────────────────────────────────────────────────────────
   // POST /chats/:id/quotes
   // Thợ tạo báo giá mới cho phiên chat
-  // Tạm hardcode technicianId = 4 (Thợ) để test
   // ─────────────────────────────────────────────────────────────────
   @Post(':id/quotes')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   async createQuote(
     @Param('id', ParseIntPipe) sessionId: number,
+    @Req() req,
     @Body() dto: CreateQuoteDto,
   ) {
-    // TODO: Sau này lấy technicianId từ JWT token (@Req() req → req.user.id)
-    const technicianId = 4; // Hardcode Thợ để test
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
     return this.chatsService.createQuote(sessionId, technicianId, dto);
   }
 
@@ -96,11 +146,13 @@ export class ChatsController {
   // Upload ảnh/video vào phiên chat → Lưu lên R2 → Tạo tin nhắn
   // ─────────────────────────────────────────────────────────────────
   @Post(':id/image')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
   async uploadMediaMessage(
     @Param('id', ParseIntPipe) sessionId: number,
     @UploadedFile() file: Express.Multer.File,
+    @Req() req,
   ) {
     if (!file) {
       throw new BadRequestException('Không tìm thấy file. Vui lòng chọn file để gửi.');
@@ -130,8 +182,7 @@ export class ChatsController {
     // Xác định MessageType dựa vào mimetype
     const type = file.mimetype.startsWith('video/') ? MessageType.VIDEO : MessageType.IMAGE;
 
-    // TODO: Sau này lấy senderId từ JWT token (@Req() req → req.user.id)
-    const senderId = 3; // Hardcode Khách hàng để test
+    const senderId = Number(req.user.id || req.user.userId || req.user.sub);
     const message = await this.chatsService.sendMessage(sessionId, senderId, {
       type: type,
       content: fileUrl,
@@ -154,15 +205,18 @@ export class ChatsController {
   // Cập nhật trạng thái báo giá và emit qua socket
   // ─────────────────────────────────────────────────────────────────
   @Patch('messages/:messageId/quote')
+  @UseGuards(JwtAuthGuard)
   async updateQuoteStatus(
     @Param('messageId', ParseIntPipe) messageId: number,
     @Body('status') status: 'ACCEPTED' | 'REJECTED',
+    @Req() req,
   ) {
     if (!['ACCEPTED', 'REJECTED'].includes(status)) {
       throw new BadRequestException('Trạng thái không hợp lệ.');
     }
 
-    const { message } = await this.chatsService.updateQuoteStatus(messageId, status);
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    const { message } = await this.chatsService.updateQuoteStatus(messageId, userId, status);
 
     // Emit event socket tới phòng chat
     const roomName = `room_${message.sessionId}`;
@@ -176,6 +230,19 @@ export class ChatsController {
       message: 'Đã cập nhật trạng thái báo giá thành công.',
       data: message,
     };
+  }
+
+  @Patch('messages/:messageId/read')
+  @UseGuards(JwtAuthGuard)
+  async markAsRead(@Param('messageId', ParseIntPipe) messageId: number) {
+    return this.chatsService.markAsRead(messageId);
+  }
+
+  @Patch(':id/read-all')
+  @UseGuards(JwtAuthGuard)
+  async markAllAsRead(@Param('id', ParseIntPipe) sessionId: number, @Req() req) {
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.markAllAsRead(sessionId, userId);
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -196,5 +263,21 @@ export class ChatsController {
       message: 'Đã chốt đơn thành công! Hệ thống đang phát sóng tìm thợ quanh khu vực của bạn.',
       data: session,
     };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/user/jobs/:id/review
+  // Khách hàng gửi đánh giá sau khi đơn COMPLETED
+  // ─────────────────────────────────────────────────────────────────
+  @Post('user/jobs/:id/review')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async submitReview(
+    @Param('id', ParseIntPipe) sessionId: number,
+    @Req() req,
+    @Body() body: { rating: number; comment?: string; tags?: string[] },
+  ) {
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.submitReview(sessionId, userId, body);
   }
 }

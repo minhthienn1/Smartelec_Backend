@@ -109,10 +109,16 @@ export class DevicesService {
     const purchaseDate = dto.purchaseDate !== undefined ? (dto.purchaseDate ? new Date(dto.purchaseDate) : null) : device.purchaseDate;
     const maintenanceCycle = dto.maintenanceCycleMonths !== undefined ? dto.maintenanceCycleMonths : device.maintenanceCycleMonths;
 
-    if (maintenanceCycle) {
-      const baseDate = purchaseDate ? new Date(purchaseDate) : new Date();
-      nextMaintenanceDate = new Date(baseDate);
-      nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + maintenanceCycle);
+    if (dto.nextMaintenanceDate !== undefined) {
+      // Nếu client gửi nextMaintenanceDate trực tiếp (ví dụ: nút "Đã bảo trì")
+      nextMaintenanceDate = dto.nextMaintenanceDate ? new Date(dto.nextMaintenanceDate) : null;
+    } else if (dto.purchaseDate !== undefined || dto.maintenanceCycleMonths !== undefined) {
+      // Chỉ tự động tính toán lại nếu có thay đổi ngày mua hoặc chu kỳ bảo trì
+      if (maintenanceCycle) {
+        const baseDate = purchaseDate ? new Date(purchaseDate) : new Date();
+        nextMaintenanceDate = new Date(baseDate);
+        nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + maintenanceCycle);
+      }
     }
 
     const updated = await this.prisma.device.update({

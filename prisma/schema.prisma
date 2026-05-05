@@ -24,11 +24,12 @@ enum Gender {
 
 enum JobStatus {
   AI_CONSULTING // Đang chat với AI
-  BROADCASTING // Đang phát sóng tìm thợ
-  MATCHED // Thợ đã nhận ca, phòng chat mở
-  IN_PROGRESS // Đã chốt báo giá, đang tiến hành sửa
-  DONE // Sửa xong, hoàn thành
-  CANCELLED // Bị hủy
+  BROADCASTING  // Đang phát sóng tìm thợ
+  MATCHED       // Thợ đã nhận ca, phòng chat mở
+  IN_PROGRESS   // Đã chốt báo giá, đang tiến hành sửa
+  COMPLETED     // Hoàn thành (thợ xác nhận)
+  DONE          // Alias cũ, giữ lại để tương thích
+  CANCELLED     // Bị hủy
 }
 
 enum MessageType {
@@ -48,9 +49,11 @@ enum QuoteStatus {
 }
 
 enum AssignmentAction {
-  ASSIGNED // Thợ nhận đơn
-  UNASSIGNED // Thợ hủy đơn
-  REJECTED // Khách từ chối thợ (nếu có tính năng này sau này)
+  ASSIGNED          // Thợ nhận đơn
+  UNASSIGNED        // Thợ hủy đơn
+  REJECTED          // Khách từ chối thợ
+  MANUAL_CANCEL     // Thợ chủ động hủy
+  SYSTEM_AUTO_CANCEL // Hệ thống tự hủy sau 30 phút
 }
 
 // ======================================================================
@@ -81,7 +84,13 @@ model User {
   technicianSessions  ChatSession[]              @relation("TechnicianSessions")
   sentMessages        Message[]                  @relation("SentMessages")
   quotesCreated       Quote[]
-  assignmentHistories SessionAssignmentHistory[] // Lịch sử nhận/hủy đơn
+  assignmentHistories SessionAssignmentHistory[]
+  reviewsGiven        Review[]                   @relation("UserReviews")
+  reviewsReceived     Review[]                   @relation("TechnicianReviews")
+
+  // ĐIỂM ĐÁNH GIÁ (Cache để truy vấn nhanh)
+  averageRating Float @default(0.0)
+  totalReviews  Int   @default(0)
 
   @@map("users")
 }
@@ -133,15 +142,37 @@ model ChatSession {
   technicianId Int?
   technician   User? @relation("TechnicianSessions", fields: [technicianId], references: [id])
 
-  // Lịch sử, Tin nhắn, Báo giá
+  // Lịch sử, Tin nhắn, Báo giá, Đánh giá
   messages            Message[]
   quotes              Quote[]
   assignmentHistories SessionAssignmentHistory[]
+  review              Review? // 1 đơn chỉ có 1 đánh giá
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("chat_sessions")
+}
+
+// ======================================================================
+// 4b. BẢNG ĐÁNH GIÁ (REVIEW)
+// ======================================================================
+model Review {
+  id           Int      @id @default(autoincrement())
+  sessionId    Int      @unique // 1 đơn chỉ có 1 Review
+  userId       Int      // Khách hàng đánh giá
+  technicianId Int      // Thợ được đánh giá
+  rating       Int      // Số sao (1-5)
+  comment      String?  @db.Text
+  tags         String[] // ["Đúng giờ", "Nhiệt tình", "Giá hợp lý"]
+
+  createdAt DateTime @default(now())
+
+  session    ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user       User        @relation("UserReviews", fields: [userId], references: [id])
+  technician User        @relation("TechnicianReviews", fields: [technicianId], references: [id])
+
+  @@map("reviews")
 }
 
 // ======================================================================
@@ -218,6 +249,7 @@ model AiReasoningLog {
   nextState Json?
   riskLevel String?
   aiResponse String? @db.Text
+  aiFeedback String? // "LIKE" | "DISLIKE" | null — RLHF feedback
   createdAt DateTime @default(now())
 
   @@map("ai_reasoning_logs")

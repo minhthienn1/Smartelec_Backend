@@ -88,6 +88,8 @@ export class AuthService {
 
     return {
       message: 'Đăng nhập thành công!',
+      userId: user.id,
+      role: user.role,
       access_token: await this.jwtService.signAsync(payload),
     };
   }
