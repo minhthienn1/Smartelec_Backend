@@ -29,6 +29,20 @@ Cấu trúc câu trả lời: Tóm tắt -> Nguyên nhân -> Hướng dẫn an t
 QUY TẮC ĐẶT THỢ (BẮT BUỘC)
 ══════════════════════════════════════════
 - Nếu khách hàng muốn gọi thợ hoặc đồng ý đặt lịch: BẮT BUỘC kích hoạt trigger_booking tool.
+
+══════════════════════════════════════════
+BẮT BUỘC TRẢ VỀ JSON THEO ĐỊNH DẠNG SAU:
+══════════════════════════════════════════
+{
+  "text": "Câu trả lời của bạn cho khách hàng",
+  "state": {
+    "phase": "COLLECTING" | "DIAGNOSING" | "READY_TO_BOOK",
+    "risk": "RED" | "YELLOW" | "GREEN" | "UNKNOWN",
+    "device": "Tên thiết bị",
+    "symptom": "Mô tả triệu chứng",
+    "flags": ["tag1", "tag2"]
+  }
+}
 `;
 
 @Injectable()
@@ -75,8 +89,6 @@ export class AiService {
         temperature: 0.1,
         topP: 0.8,
         topK: 40,
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
       },
       tools: [
         {
@@ -130,7 +142,39 @@ export class AiService {
         deviceContext = `\n[THÔNG TIN NỘI BỘ]: Khách hàng có: ${devices.map(d => d.category).join(', ')}`;
       }
 
-      const parts: any[] = [{ text: `${deviceContext}${lastStateContext}\n\nKhách nhắn: ${message}` }];
+      // 🧠 RLHF: Lấy feedback từ DB để "dạy" AI trước khi gọi
+      const [likedLogs, dislikedLogs] = await Promise.all([
+        this.prisma.aiReasoningLog.findMany({
+          where: { userId, aiFeedback: 'LIKE', aiResponse: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          take: 2,
+          select: { aiResponse: true },
+        }),
+        this.prisma.aiReasoningLog.findMany({
+          where: { userId, aiFeedback: 'DISLIKE', aiResponse: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { aiResponse: true },
+        }),
+      ]);
+
+      let rlhfInstruction = '';
+      if (likedLogs.length > 0 || dislikedLogs.length > 0) {
+        const likedText = likedLogs.map((l, i) => `  [Câu trả lời được thích #${i+1}]: "${(l.aiResponse ?? '').substring(0, 300)}..."`).join('\n');
+        const dislikedText = dislikedLogs.map((l, i) => `  [Câu trả lời bị chê #${i+1}]: "${(l.aiResponse ?? '').substring(0, 300)}..."`).join('\n');
+        rlhfInstruction = `
+[LỊCH SỬ PHẢN HỒI CỦA NGƯỜI DÙNG ĐỂ BẠN HỌC HỎI]:
+- Những câu trả lời khách hàng đã RẤT THÍCH (Hãy học theo cách tư duy, giọng điệu và độ chi tiết này):
+${likedText || '  (Chưa có)'}
+- Những câu trả lời khách hàng KHÔNG THÍCH (Tuyệt đối KHÔNG lặp lại lỗi, cách nói dài dòng hoặc sai kiến thức như thế này):
+${dislikedText || '  (Chưa có)'}
+[HẾT LỊCH SỬ PHẢN HỒI]
+`;
+        this.logger.log(`🧠 [RLHF] Injected ${likedLogs.length} LIKE + ${dislikedLogs.length} DISLIKE vào prompt cho user #${userId}`);
+      }
+
+      const promptWithRLHF = `${rlhfInstruction}${deviceContext}${lastStateContext}\n\nKhách nhắn: ${message}`;
+      const parts: any[] = [{ text: promptWithRLHF }];
       if (imageBase64) parts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
 
       const chat = this.model.startChat({
@@ -159,10 +203,14 @@ export class AiService {
 
       const rawText = response.text();
       try {
-        parsed = JSON.parse(rawText);
+        // CHỐT CHẶN 2: DÙNG REGEX ĐỂ TRÍCH XUẤT JSON NẾU AI TRẢ VỀ MARKDOWN
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        const jsonToParse = jsonMatch ? jsonMatch[0] : rawText;
+        parsed = JSON.parse(jsonToParse);
       } catch (e) {
+        this.logger.warn("Failed to parse AI JSON, falling back to raw text");
         parsed = {
-          text: rawText.substring(0, 500),
+          text: rawText.replace(/```json|```/g, '').substring(0, 500),
           state: prevState || { phase: "COLLECTING", risk: "UNKNOWN", device: null, symptom: null },
           is_booking_triggered: false
         };
@@ -184,12 +232,15 @@ export class AiService {
         sessionId = await this.saveRepairCase(userId, parsed.state.device, parsed.state.symptom, parsed.text);
       }
 
-      // 4. LƯU LOG VỚI STATE THẬT
-      this.saveReasoningLog(userId, sessionId, message, prevState, parsed).catch(e => {
-        this.logger.error("Failed to save reasoning log", e.stack);
-      });
+      // 4. LƯU LOG VỚI STATE THẬT và lấy logId để trả về Flutter
+      let logId: number | null = null;
+      try {
+        logId = await this.saveReasoningLog(userId, sessionId, message, prevState, parsed);
+      } catch (e) {
+        this.logger.error("Failed to save reasoning log", e);
+      }
 
-      return { ...parsed, sessionId };
+      return { ...parsed, sessionId, logId };
     } catch (error: any) {
       this.logger.error(`AI Error: ${error.message}`);
       
@@ -208,9 +259,9 @@ export class AiService {
     }
   }
 
-  private async saveReasoningLog(userId: number, sessionId: number | null, userMsg: string, prevState: any, parsed: any) {
+  private async saveReasoningLog(userId: number, sessionId: number | null, userMsg: string, prevState: any, parsed: any): Promise<number | null> {
     try {
-      await this.prisma.aiReasoningLog.create({
+      const log = await this.prisma.aiReasoningLog.create({
         data: {
           userId,
           sessionId,
@@ -221,8 +272,10 @@ export class AiService {
           aiResponse: parsed?.text || ''
         }
       });
+      return log.id; // Trả về logId cho RLHF
     } catch (err) {
       this.logger.error("Error saving reasoning log to DB", err);
+      return null;
     }
   }
 
@@ -237,5 +290,21 @@ export class AiService {
       });
       return newCase.id;
     } catch (error: any) { return null; }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // RLHF: Lưu phản hồi Like/Dislike vào AiReasoningLog
+  // ─────────────────────────────────────────────────────────────────
+  async saveFeedback(logId: number, feedback: 'LIKE' | 'DISLIKE') {
+    const log = await this.prisma.aiReasoningLog.findUnique({ where: { id: logId } });
+    if (!log) {
+      throw new Error(`Không tìm thấy AI log với ID = ${logId}`);
+    }
+    await this.prisma.aiReasoningLog.update({
+      where: { id: logId },
+      data: { aiFeedback: feedback },
+    });
+    this.logger.log(`👍 [RLHF] User #${log.userId} đã ${feedback} log #${logId}`);
+    return { success: true, feedback };
   }
 }
