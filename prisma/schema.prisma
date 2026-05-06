@@ -59,6 +59,12 @@ enum AssignmentAction {
 // ======================================================================
 // 2. BẢNG NGƯỜI DÙNG & THIẾT BỊ
 // ======================================================================
+
+// Enum phân quyền truy cập tài liệu RAG
+enum AccessLevel {
+  BASIC    // Dành cho cả Khách hàng & Thợ (vệ sinh, kiểm tra phích cắm...)
+  ADVANCED // CHỈ dành cho Thợ có chuyên môn (tháo máy, sửa bo mạch...)
+}
 model User {
   id          Int     @id @default(autoincrement())
   phoneNumber String  @unique
@@ -249,8 +255,34 @@ model AiReasoningLog {
   nextState Json?
   riskLevel String?
   aiResponse String? @db.Text
-  aiFeedback String? // "LIKE" | "DISLIKE" | null — RLHF feedback
+  aiFeedback String? // "LIKE" | "DISLIKE" | null
+  score          Int     @default(0)
+  deviceCategory String? // Ví dụ: "Máy lạnh", "Tủ lạnh"
+  isGolden       Boolean @default(false) // Cờ đánh dấu câu trả lời xuất sắc nhất
   createdAt DateTime @default(now())
 
   @@map("ai_reasoning_logs")
+}
+
+// ======================================================================
+// 6. BẢNG TÀI LIỆU KỸ THUẬT (RAG — Retrieval-Augmented Generation)
+// ======================================================================
+model TechnicalDocument {
+  id          Int         @id @default(autoincrement())
+  title       String      // Tên / Chủ đề tài liệu (vd: "Máy lạnh không mát - Kiểm tra gas")
+  content     String      @db.Text // Đoạn nội dung (chunk) đã được xử lý
+  category    String?     // Loại thiết bị liên quan (vd: "Máy lạnh", "Tủ lạnh")
+  source      String?     // Nguồn gốc tài liệu (vd: "Manual Daikin 2024", "Kỹ thuật viên nội bộ")
+
+  // Phân quyền: BASIC = khách & thợ đều xem được; ADVANCED = chỉ thợ
+  accessLevel AccessLevel @default(ADVANCED)
+
+  // Vector embedding — dùng pgvector extension (đã bật trên Neon)
+  // Chiều 768 tương thích với mô hình text-embedding-004 của Google
+  embedding   Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("technical_documents")
 }

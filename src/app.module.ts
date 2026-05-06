@@ -12,6 +12,7 @@ import { ChatsModule } from './chats/chats.module';
 import { UploadModule } from './upload/upload.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AiModule } from './ai/ai.module';
+import { MechanicAiModule } from './mechanic-ai/mechanic-ai.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AiModule } from './ai/ai.module';
     UploadModule,
     NotificationsModule,
     AiModule,
+    MechanicAiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
