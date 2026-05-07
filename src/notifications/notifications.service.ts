@@ -18,17 +18,40 @@ export class NotificationsService implements OnModuleInit {
     }
   }
 
-  async sendTestNotification(token: string, title: string, body: string) {
-    const message = {
+  async sendNotification(params: {
+    token: string;
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+    channelId?: string;
+  }) {
+    const { token, title, body, data, channelId } = params;
+
+    const message: admin.messaging.Message = {
       notification: {
         title,
         body,
       },
       token: token,
-      // Có thể thêm data payload ở đây nếu cần
       data: {
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        type: 'test',
+        ...data,
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: channelId || 'default',
+          priority: 'high',
+          sound: channelId === 'job_alerts' ? 'emergency_alarm' : 'default',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            contentAvailable: true,
+            sound: channelId === 'job_alerts' ? 'emergency_alarm.wav' : 'default',
+          },
+        },
       },
     };
 
@@ -40,5 +63,9 @@ export class NotificationsService implements OnModuleInit {
       console.error('❌ Lỗi gửi thông báo:', error);
       throw error;
     }
+  }
+
+  async sendTestNotification(token: string, title: string, body: string) {
+    return this.sendNotification({ token, title, body });
   }
 }

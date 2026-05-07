@@ -26,6 +26,8 @@ enum JobStatus {
   AI_CONSULTING // Đang chat với AI
   BROADCASTING  // Đang phát sóng tìm thợ
   MATCHED       // Thợ đã nhận ca, phòng chat mở
+  EN_ROUTE      // Thợ đang trên đường di chuyển đến nhà khách
+  ARRIVED       // Thợ đã đến nơi, đang kiểm tra
   IN_PROGRESS   // Đã chốt báo giá, đang tiến hành sửa
   COMPLETED     // Hoàn thành (thợ xác nhận)
   DONE          // Alias cũ, giữ lại để tương thích
@@ -79,6 +81,9 @@ model User {
   role       UserRole @default(USER)
   isVerified Boolean  @default(false)
   isActive   Boolean  @default(true)
+  isOnline   Boolean  @default(false)
+  latitude   Float?
+  longitude  Float?
 
   lastLogin DateTime?
   createdAt DateTime  @default(now())

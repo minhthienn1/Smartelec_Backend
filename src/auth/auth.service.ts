@@ -86,6 +86,12 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
     };
 
+    // Cập nhật lastLogin khi đăng nhập thành công
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+
     return {
       message: 'Đăng nhập thành công!',
       userId: user.id,

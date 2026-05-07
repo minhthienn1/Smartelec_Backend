@@ -14,6 +14,8 @@ import {
   Patch,
   UseGuards,
   Req,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -41,6 +43,28 @@ export class ChatsController {
   async getUserSessions(@Req() req) {
     const userId = req.user.userId;
     return this.chatsService.getUserSessions(userId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // GET /chats/:id
+  // Lấy chi tiết một phiên chat (bao gồm status hiện tại)
+  // ─────────────────────────────────────────────────────────────────
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  async getSessionById(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    const session = await this.chatsService.getSessionById(id);
+    
+    if (!session) {
+      throw new NotFoundException('Không tìm thấy phiên chat này.');
+    }
+
+    // Kiểm tra quyền truy cập: Chỉ khách hàng hoặc thợ của phiên này mới được xem
+    if (session.userId !== userId && session.technicianId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền truy cập thông tin phiên chat này.');
+    }
+
+    return session;
   }
 
   // --- API DÀNH CHO THỢ (TECHNICIAN ROLE) ---
@@ -279,5 +303,61 @@ export class ChatsController {
   ) {
     const userId = Number(req.user.id || req.user.userId || req.user.sub);
     return this.chatsService.submitReview(sessionId, userId, body);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/technician/jobs/:id/start-moving
+  // Thợ xác nhận bắt đầu di chuyển đến nhà khách
+  // ─────────────────────────────────────────────────────────────────
+  @Post('technician/jobs/:id/start-moving')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async startEnRoute(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.startEnRoute(id, technicianId);
+  }
+
+  @Post('technician/jobs/:id/arrived')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async confirmArrival(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const technicianId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.confirmArrival(id, technicianId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/user/jobs/:id/cancel
+  // Khách hàng chủ động hủy đơn
+  // ─────────────────────────────────────────────────────────────────
+  @Post('user/jobs/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async userCancelJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.cancelJob(id, userId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // POST /chats/user/jobs/:id/redispatch
+  // Khách hàng yêu cầu tìm thợ khác (Trị Ghosting)
+  // ─────────────────────────────────────────────────────────────────
+  @Post('user/jobs/:id/redispatch')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async redispatchJob(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const userId = Number(req.user.id || req.user.userId || req.user.sub);
+    return this.chatsService.redispatchJob(id, userId);
   }
 }
