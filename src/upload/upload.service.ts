@@ -1,5 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { v4 as uuidv4 } from 'uuid';
+import { extname } from 'path';
 
 @Injectable()
 export class UploadService {
@@ -55,6 +57,27 @@ export class UploadService {
       throw new InternalServerErrorException(
         'Không thể upload file: ' + error.message,
       );
+    }
+  }
+
+  // --- MỚI: DÀNH RIÊNG CHO CHAT (SỬ DỤNG UUID) ---
+  async uploadMediaToR2(file: Express.Multer.File): Promise<string> {
+    try {
+      const uniqueFileName = `chats/${uuidv4()}${extname(file.originalname)}`;
+
+      await this.s3Client.send(
+        new PutObjectCommand({
+          Bucket: this.bucketName,
+          Key: uniqueFileName,
+          Body: file.buffer,
+          ContentType: file.mimetype, // Giữ nguyên MIME type để không bị lỗi "loại file không hỗ trợ"
+        }),
+      );
+
+      return `${this.publicUrl}/${uniqueFileName}`;
+    } catch (error) {
+      console.error('Lỗi upload file lên R2', error);
+      throw new Error('Không thể tải tệp lên máy chủ');
     }
   }
 }

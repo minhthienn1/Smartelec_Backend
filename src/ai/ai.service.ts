@@ -119,6 +119,7 @@ export class AiService {
     this.genAI = new GoogleGenerativeAI(apiKey);
 
     this.model = this.genAI.getGenerativeModel({
+      // ⚠️ QUY TẮC SẮT ĐÁ: KHÔNG ĐƯỢC ĐỔI PHIÊN BẢN 2.5 SANG BẢN KHÁC
       model: 'gemini-2.5-flash',
       systemInstruction: smartElecSystemPrompt,
       generationConfig: {
@@ -167,7 +168,7 @@ export class AiService {
     }
 
     let sessionId: number | null = null;
-    let parsed: any = null;
+    let prevState: any = null;
 
     try {
       // ── 1. LẤY TRẠNG THÁI PHIÊN TRƯỚC ─────────────────────────────
@@ -175,7 +176,7 @@ export class AiService {
         where: { userId },
         orderBy: { createdAt: 'desc' },
       });
-      const prevState = lastLog?.nextState || null;
+      prevState = lastLog?.nextState || null;
       const lastStateContext = prevState
         ? `\n[TRẠNG THÁI HIỆN TẠI]: ${JSON.stringify(prevState)}`
         : '';
@@ -303,25 +304,12 @@ ${negativeText || '  (Chưa có)'}
         const device = parsed.state?.device || (prevState as any)?.device || 'thiết bị';
         const symptom = parsed.state?.symptom || (prevState as any)?.symptom || 'sự cố';
         
-        sessionId = await this.saveRepairCase(userId, device, symptom, 'Booking via structured output');
+        sessionId = await this.saveRepairCase(userId, device, symptom, parsed.text || 'Booking via AI');
 
-        const bookingText = `Dạ em đã ghi nhận yêu cầu đặt thợ cho **${device}**. Anh/chị có muốn em đẩy đơn lên hệ thống ngay không ạ?`;
-        const bookingState = { phase: 'READY_TO_BOOK', device: device, symptom: symptom, risk: 'YELLOW' };
-
-        // ✅ Lưu reasoning log để có logId trả về cho Flutter hiển thị Like/Dislike
-        let logId: number | null = null;
-        try {
-          logId = await this.saveReasoningLog(userId, sessionId, message, prevState, { text: bookingText, state: bookingState });
-        } catch (e) {
-          this.logger.error('Failed to save reasoning log for booking', e);
-        }
-
+        // ✅ KHÔNG ghi đè text nữa, để AI tự trả lời tự nhiên, chỉ bổ sung flag để Flutter hiện nút
         return {
-          text: bookingText,
-          state: bookingState,
-          is_booking_triggered: true,
+          ...parsed,
           sessionId,
-          logId,
         };
       }
 
@@ -373,7 +361,10 @@ ${negativeText || '  (Chưa có)'}
       // Chuyển tiếp lỗi nội bộ (rate limit app)
       if (error instanceof HttpException) throw error;
 
-      return { text: 'Dạ hệ thống AI đang bận, bác thử lại sau xíu nha!', state: null };
+      return { 
+        text: 'Dạ hệ thống AI đang bận (Lỗi: ' + error.message + '), bác thử lại sau xíu nha!', 
+        state: prevState || null 
+      };
     }
   }
 

@@ -9,7 +9,19 @@ export class UsersController {
   @Patch('fcm-token')
   @UseGuards(JwtAuthGuard)
   async updateFcmToken(@Req() req, @Body('token') token: string) {
-    const userId = req.user.userId;
+    const userId = Number(req.user.sub || req.user.userId || req.user.id);
     return this.usersService.updateFcmToken(userId, token);
+  }
+
+  @Patch('toggle-online')
+  @UseGuards(JwtAuthGuard)
+  async toggleOnline(
+    @Req() req,
+    @Body('latitude') latitude?: number,
+    @Body('longitude') longitude?: number,
+    @Body('isOnline') isOnline?: boolean,
+  ) {
+    const userId = Number(req.user.sub || req.user.userId || req.user.id);
+    return this.usersService.toggleOnline(userId, latitude, longitude, isOnline);
   }
 }
