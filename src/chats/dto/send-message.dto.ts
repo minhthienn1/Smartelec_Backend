@@ -12,11 +12,11 @@ export class SendMessageDto {
     message: `type phải là một trong: ${Object.values(MessageType).join(', ')}`,
   })
   @IsNotEmpty({ message: 'type không được để trống' })
-  type: MessageType;
+  type?: MessageType;
 
   @IsString({ message: 'content phải là chuỗi' })
   @IsNotEmpty({ message: 'content không được để trống' })
-  content: string;
+  content?: string;
 
   @IsOptional()
   @IsObject({ message: 'metadata phải là một object' })

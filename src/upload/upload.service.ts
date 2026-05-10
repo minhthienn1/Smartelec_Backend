@@ -52,7 +52,7 @@ export class UploadService {
 
       console.log(`☁️ [R2] Upload thành công: ${publicFileUrl}`);
       return publicFileUrl;
-    } catch (error) {
+    } catch (error : any) {
       console.error(`❌ [R2] Upload thất bại:`, error.message);
       throw new InternalServerErrorException(
         'Không thể upload file: ' + error.message,
