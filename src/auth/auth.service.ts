@@ -80,10 +80,7 @@ export class AuthService {
 
     const payload = {
       sub: user.id,
-      phone: user.phoneNumber,
       role: user.role,
-      fullName: user.fullName,
-      avatarUrl: user.avatarUrl,
     };
 
     // Cập nhật lastLogin khi đăng nhập thành công
