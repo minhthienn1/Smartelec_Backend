@@ -13,7 +13,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     PassportModule,
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET || 'SMARTELEC_SECRET_KEY_2026',
+      secret: process.env.JWT_SECRET || 'SmartElec_Thaibao1806',
       signOptions: {
         expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any,
       },

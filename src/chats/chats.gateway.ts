@@ -92,8 +92,10 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const userId = client.data.userId as number;
-      
-      // Bước 1: Lưu DB và Tự động phát tin nhắn (trong ChatsService đã có lệnh emit)
+      const roomName = `room_${data.sessionId}`;
+
+      // ✅ PRODUCTION FIX: Gửi tin nhắn đã lưu db ngay cho người gửi
+      // Người gửi ngay lập tức nhận được message đã có ID thật từ DB
       const savedMessage = await this.chatsService.sendMessage(
         data.sessionId,
         userId,
@@ -102,9 +104,16 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           content: data.content,
           metadata: data.metadata,
         },
+        client.id, // ← ChatsService sẽ dùng client.id để loại trừ người gửi khi emit broadcast
       );
 
-      // Bước 2: Cập nhật inbox cho đối phương
+      // Trả về confirmation cho client
+      client.emit('message_delivered', {
+        tempId: data.metadata?.tempId, // Frontend gửi kèm ID tạm để match
+        savedMessage: savedMessage,
+      });
+
+      // Cập nhật inbox cho đối phương
       const session = await this.chatsService.getSessionById(data.sessionId);
       if (session) {
         const recipientId = userId === session.userId ? session.technicianId : session.userId;
@@ -118,6 +127,7 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return { event: 'message_sent', data: savedMessage };
     } catch (error) {
+      console.error('❌ Lỗi gửi tin nhắn:', error.message);
       client.emit('error_message', { message: error.message });
     }
   }

@@ -41,7 +41,7 @@ export class ChatsService {
             { technicianId: { not: null } },
             {
               OR: [
-                { status: { not: 'COMPLETED' } }, // Đang làm thì hiện cho cả 2
+                { status: { notIn: ['COMPLETED', 'CANCELLED'] } }, // Đang làm (không phải COMPLETED hay CANCELLED) thì hiện cho cả 2
                 {
                   AND: [
                     { userId: userId }, // Chỉ Khách hàng mới thấy đơn COMPLETED
@@ -99,8 +99,7 @@ export class ChatsService {
     }
   }
 
-  // 2. GỬI TIN NHẮN
-  async sendMessage(sessionId: number, senderId: number, dto: SendMessageDto) {
+  async sendMessage(sessionId: number, senderId: number, dto: SendMessageDto, senderSocketId?: string) {
     try {
       const message = await this.prisma.message.create({
         data: {
@@ -115,13 +114,22 @@ export class ChatsService {
         },
       });
 
-      // 3. Phát sự kiện qua Socket.io tới phòng chat để hiện tin nhắn ngay lập tức
+      // ✅ PRODUCTION: Broadcast CHỈ đến những người khác (không dội ngược người gửi)
       const roomName = `room_${sessionId}`;
-      this.chatsGateway.server.to(roomName).emit('new_message', message);
+      if (senderSocketId) {
+        // Exclude sender: chỉ phát cho người nhận
+        this.chatsGateway.server
+          .to(roomName)
+          .except(senderSocketId)
+          .emit('new_message', message);
+      } else {
+        // Fallback: phát cho tất cả (trường hợp gửi từ API, không qua WebSocket)
+        this.chatsGateway.server.to(roomName).emit('new_message', message);
+      }
 
-      // Gửi Push Notification âm thầm
+      // FCM Push Notification (âm thầm)
       this.triggerFCMNotification(sessionId, senderId, message).catch(err => 
-        this.logger.error('Lỗi gửi FCM:', err.message)
+        this.logger.error('❌ Lỗi gửi FCM:', err.message)
       );
 
       return message;
@@ -231,7 +239,17 @@ export class ChatsService {
   }
 
   // 5. CHỐT ĐƠN ĐẶT THỢ (Transition to BROADCASTING)
-  async bookTechnician(sessionId: number, userId: number) {
+  async bookTechnician(
+    sessionId: number,
+    userId: number,
+    dto?: {
+      contactName?: string;
+      contactPhone?: string;
+      address?: string;
+      latitude?: number;
+      longitude?: number;
+    },
+  ) {
     const session = await this.prisma.chatSession.findUnique({ 
       where: { id: sessionId },
       include: { user: true }
@@ -241,7 +259,15 @@ export class ChatsService {
 
     const updated = await this.prisma.chatSession.update({
       where: { id: sessionId },
-      data: { status: 'BROADCASTING', updatedAt: new Date() },
+      data: { 
+        status: 'BROADCASTING', 
+        updatedAt: new Date(),
+        contactName: dto?.contactName || session.contactName,
+        contactPhone: dto?.contactPhone || session.contactPhone,
+        address: dto?.address || session.address,
+        latitude: dto?.latitude !== undefined ? dto.latitude : session.latitude,
+        longitude: dto?.longitude !== undefined ? dto.longitude : session.longitude,
+      },
     });
 
     this.chatsGateway.emitGlobal('new_broadcast_job', {
@@ -251,6 +277,9 @@ export class ChatsService {
       aiSummary: updated.aiSummary,
       createdAt: updated.createdAt,
       version: updated.version,
+      address: updated.address,
+      contactName: updated.contactName,
+      contactPhone: updated.contactPhone,
       user: {
         id: session.userId,
         fullName: (session as any).user?.fullName || 'Khách hàng',
@@ -275,6 +304,9 @@ export class ChatsService {
         aiSummary: true, 
         createdAt: true, 
         version: true,
+        address: true,
+        contactName: true,
+        contactPhone: true,
         user: { select: { id: true, fullName: true, avatarUrl: true } }
       },
       orderBy: { createdAt: 'desc' },
