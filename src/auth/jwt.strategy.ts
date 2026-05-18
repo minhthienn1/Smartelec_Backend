@@ -13,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       // Thêm '!' ở cuối hoặc dùng dấu '||' để ép kiểu string
-      secretOrKey: process.env.JWT_SECRET || 'fallback_secret_key',
+      secretOrKey: process.env.JWT_SECRET || 'SmartElec_Thaibao1806',
     });
   }
 

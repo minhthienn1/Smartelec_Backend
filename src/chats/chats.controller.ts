@@ -60,7 +60,9 @@ export class ChatsController {
     }
 
     // Kiểm tra quyền truy cập: Chỉ khách hàng hoặc thợ của phiên này mới được xem
-    if (session.userId !== userId && session.technicianId !== userId) {
+    // Hoặc cho phép thợ xem khi đơn đang phát sóng (BROADCASTING) để họ xem chi tiết trước khi nhận
+    const isBroadcastToTech = req.user.role === 'TECHNICIAN' && session.status === 'BROADCASTING';
+    if (session.userId !== userId && session.technicianId !== userId && !isBroadcastToTech) {
       throw new ForbiddenException('Bạn không có quyền truy cập thông tin phiên chat này.');
     }
 
@@ -279,9 +281,16 @@ export class ChatsController {
   async bookTechnician(
     @Param('id', ParseIntPipe) sessionId: number,
     @Req() req,
+    @Body() body: {
+      contactName?: string;
+      contactPhone?: string;
+      address?: string;
+      latitude?: number;
+      longitude?: number;
+    },
   ) {
     const userId = Number(req.user?.id || req.user?.userId || req.user?.sub);
-    const session = await this.chatsService.bookTechnician(sessionId, userId);
+    const session = await this.chatsService.bookTechnician(sessionId, userId, body);
     
     return {
       message: 'Đã chốt đơn thành công! Hệ thống đang phát sóng tìm thợ quanh khu vực của bạn.',

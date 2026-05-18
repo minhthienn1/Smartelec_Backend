@@ -18,6 +18,7 @@ export class ChatHistoryService {
           userId,
           deviceType: title,
           aiSummary: summary,
+          symptom: summary, // ✅ Lưu mô tả vào cả symptom để thợ xem được trên Job Board
         },
         select: {
           id: true,
